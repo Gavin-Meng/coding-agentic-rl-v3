@@ -1,70 +1,106 @@
-# Coding Agentic RL V3 · A800 27B 交付
+# Coding Agentic RL V3
 
-本包执行固定的单机三卡方案。一张 A800 80GB 运行 CUDA vLLM，
-两张 A800 80GB 共同运行 FSDP2 Learner。Pi 在 Harbor 隔离会话中执行工具。
-OpenEnv 采集每次 vLLM 请求的训练数据，独立 Verifier 评分最终文件。
-TRL 负责 AsyncGRPO 和版本化 LoRA 同步。
+**Harness-native Agentic Reinforcement Learning with Distributed AsyncGRPO**
 
-本地验收覆盖依赖锁、入口、九道公开任务、双进程 adapter 导出和源包校验。
-A800 上的首次运行从下面的 smoke 开始。模型与组件版本见 [兼容性记录](COMPATIBILITY.md)。
+Coding Agentic RL V3 targets Qwen3.8-27B with the native Pi coding harness.
+OpenEnv captures model requests from Pi inside Harbor, and an independent
+verifier grades each final artifact. TRL AsyncGRPO trains LoRA adapters on
+two FSDP2 ranks and publishes versioned adapters to a separate vLLM sampler.
 
-## 1. 解包与检查
+[中文部署手册](DEPLOYMENT.zh-CN.md) · [Compatibility and pinned sources](COMPATIBILITY.md)
 
-在获准的实验室服务器解包。需要 Linux x86_64、glibc 2.35+、NVIDIA R580
-或更新驱动、三张完整 A800 80GB、本机 Docker daemon 和 Compose v2。
-安装工具使用 uv，网络只在安装和下载公开资产阶段使用。
-建议运行目录有至少 90 GiB 空闲，节点有至少 96 GiB 可用内存。
+## Validation status
+
+- **V3 CPU checks passed.** The pinned environments and CLI entry points
+  were checked. Nine public task fixtures and two-rank DTensor LoRA export
+  passed on CPU. The source release has a per-file SHA256 manifest.
+- **Earlier 4B experiments ran on CUDA.** The project ran synchronous GRPO
+  and a small AsyncGRPO pilot with versioned LoRA synchronization. Those
+  experiments used Qwen3-4B and the earlier harness configuration.
+- **V3 GPU acceptance is pending.** The three-A800 smoke run, the first
+  verified 27B optimizer step, policy reload and the pilot are the GPU
+  acceptance sequence.
+
+## Architecture
+
+```text
+Harbor sandbox + Pi
+    | model calls                       final artifact
+    v                                        |
+OpenEnv Capture Proxy <--> A800 0 / vLLM     v
+    | TrainingTrace                 Independent Verifier
+    | token IDs, logprobs, masks             | binary reward
+    +-------------------+--------------------+
+                        v
+        A800 1 + A800 2 / TRL AsyncGRPO Learner
+                  FSDP2 + BF16 LoRA
+                        |
+      versioned adapter + checkpoint --> vLLM sampler
+```
+
+The [A800 configuration](configs/qwen27b_a800.yaml) fixes the single-node
+GPU roles, model revision, rollout limits and training budget.
+[SOURCE.json](SOURCE.json) records the provenance of the original deployment
+source. Git tags and the checkout hash identify the exact release.
+
+## Requirements
+
+- One Linux x86_64 host with three authorized NVIDIA A800 80 GB GPUs.
+- glibc 2.35+, NVIDIA driver R580+, local Docker with Compose v2, Bash,
+  `uv` and `tmux`. An allocated Slurm job is also supported.
+- At least 96 GiB of available RAM and 90 GiB of free disk space.
+- Network access for package installation and the pinned public assets.
+  The model weights are downloaded on the deployment host.
+
+## Install and smoke test
 
 ```bash
-tar -xzf 'v3-a800-release-<short-commit>.tar.gz'
-cd v3-a800-release
-sha256sum --strict -c SHA256SUMS
+git clone --single-branch --branch v3-a800-4a24fb0 \
+  https://github.com/Gavin-Meng/coding-agentic-rl-v3.git &&
+  cd coding-agentic-rl-v3 &&
+  git switch --detach "$(git rev-parse 'v3-a800-4a24fb0^{commit}')" &&
+  sha256sum --strict -c SHA256SUMS &&
+  tmux new -s carl-v3-a800
+```
+
+Inside tmux, enter the complete UUIDs of the three allocated GPUs.
+
+```bash
 nvidia-smi -L
-tmux new -s carl-v3-a800
-```
-
-在 tmux 中按实际分配填写完整 UUID。启用前确认三张卡的授权和时间窗。
-同一台机器上也可在已获准的 Slurm 作业内运行。
-
-```bash
+read -r -p 'Sampler GPU UUID: ' CARL_SAMPLER_GPU
+read -r -p 'Learner rank 0 GPU UUID: ' CARL_LEARNER_GPU0
+read -r -p 'Learner rank 1 GPU UUID: ' CARL_LEARNER_GPU1
+export CARL_SAMPLER_GPU CARL_LEARNER_GPU0 CARL_LEARNER_GPU1
 export CARL_GPU_AUTHORIZED=1
-export CARL_SAMPLER_GPU='GPU-<sampler-uuid>'
-export CARL_LEARNER_GPU0='GPU-<learner-uuid-0>'
-export CARL_LEARNER_GPU1='GPU-<learner-uuid-1>'
 
-bash scripts/preflight.sh
-bash scripts/setup.sh
-bash scripts/preflight.sh --installed
-bash scripts/download_assets.sh
+bash scripts/preflight.sh &&
+  bash scripts/setup.sh &&
+  bash scripts/preflight.sh --installed &&
+  bash scripts/download_assets.sh &&
+  bash scripts/smoke_test.sh --run-id a800-smoke --wall-minutes 30
 ```
 
-前置检查输出 GPU 型号、空闲显存、驱动、MIG、PCIe/NVLink 拓扑、内存、
-磁盘、Docker/Compose 和公开模型 revision 可达性。根据实验室的批准窗口设定
-每次 `--wall-minutes`。运行中的 vLLM 和 OpenEnv 仅监听本机 18300、18301。
-三个独立环境写入 `.venvs/`，公开资产写入 `.state/assets/`。
-`bash scripts/download_assets.sh --tasks-only` 可单独准备公开任务源。
+Setup installs the three locked environments in `.venvs/`. Asset downloads
+write to `.state/assets/`. The smoke test exercises the independent Docker
+verifier, hybrid attention on both learner GPUs, NCCL/FSDP2 adapter export,
+27B inference, Pi tool calls and token capture. It records its verdict in
+`.state/runs/a800-smoke/acceptance.json`.
 
-## 2. 首步与 pilot
+## Train and resume
+
+After smoke passes, run one verified optimizer update with the same assets
+and configuration.
 
 ```bash
-bash scripts/smoke_test.sh --run-id a800-smoke --wall-minutes 30
 bash scripts/train.sh --run-id a800-first \
   --smoke-run .state/runs/a800-smoke --stop-after 1 --wall-minutes 60
+cat .state/runs/a800-first/acceptance.json
 ```
 
-Smoke 依次核验独立 Docker verifier、两张 Learner 卡的混合注意力前反向、
-NCCL/FSDP2 小模型的两版 adapter 导出、27B BF16 vLLM、Pi 工具调用、
-逐请求 Token Capture 和最终产物评分。
-训练需要读取同节点、同配置和同资产生成的 smoke 回执。
-
-首步训练只接收同题、同初始 token、同策略版本、四条完整可评分且奖励
-有差异的组。首个微批检查两 rank 的真实概率与重要性屏蔽，再核对有限梯度、
-实际 AdamW 更新、冻结基模与变动的 LoRA。同步验证读取 vLLM 返回的 adapter
-路径、固定输入概率及下一次真实 Pi 请求命中的版本。一个新进程读取
-adapter 和 DCP 分片元数据，后续推理使用该 checkpoint 目录再次评测。
-
-首步 `acceptance.json` 中 `passed: true` 后续训。下面从第 1 步恢复到
-第 6 步，因此 pilot 最多增加 5 次更新。可将目标设在 6–10 之间。
+The first-step checks cover finite gradients, a real adapter update, versioned
+vLLM reload and checkpoint metadata. After `passed: true`, use a new run ID
+to resume from the accepted checkpoint. `--stop-after` is the absolute
+optimizer step, so this command can add up to five updates.
 
 ```bash
 bash scripts/train.sh --run-id a800-pilot \
@@ -73,61 +109,37 @@ bash scripts/train.sh --run-id a800-pilot \
   --stop-after 6 --wall-minutes 60
 ```
 
-每次启动默认最多 20 个新训练组，每组 4 条，`--max-groups` 可调低。
-最多 120 分钟，留 450 秒做保存和采样验收。首步和 pilot 的墙钟窗口分别计时。
-`summary.json` 以实际 optimizer 更新计数，`acceptance.json` 的
-`target_reached` 表示有没有达到本次目标。组预算、零方差或算子故障会在日志中
-留下已完成量。实际预取会影响 staleness，`max_staleness=1` 用于官方队列出队过滤。
+Each saved checkpoint includes the adapter, distributed model and optimizer
+state, scheduler, RNG and trainer state. Read `summary.json` for the actual
+step count. To request a stop at an optimizer boundary from another shell,
+create `.state/runs/a800-pilot/stop-requested`.
 
-## 3. 查看、停止与续训
+## Evaluate and return artifacts
 
-```bash
-tmux attach -t carl-v3-a800
-tail -f .state/runs/a800-first/logs/train.log
-cat .state/runs/a800-first/summary.json
-cat .state/runs/a800-first/acceptance.json
-```
-
-从另一窗口请求在优化器边界停止，运行 ID 按实际替换。
+Use an accepted checkpoint path. The example uses step 6.
 
 ```bash
-touch .state/runs/a800-pilot/stop-requested
-```
-
-训练脚本每个可用更新边界保存 adapter、两 rank 的模型和 optimizer DCP、
-scheduler、RNG、Trainer 和 rollout 状态。以回执中核验的 checkpoint 为准。
-恢复时使用新的 `--run-id` 和绝对目标步数，传入选定的 `--resume`。
-强制中止时保留此前已落盘的 checkpoint 和日志。
-使用 `cleanup.json` 核对属于本次运行的服务、容器和工作卷已退出。
-
-## 4. 评测与回传
-
-选定已验收 checkpoint 后执行独立评测。下面的步数按实际核验结果替换。
-
-```bash
+checkpoint=.state/runs/a800-pilot/checkpoints/checkpoint-6
 bash scripts/evaluate.sh --run-id a800-eval --wall-minutes 30 \
-  --checkpoint .state/runs/a800-pilot/checkpoints/checkpoint-6
+  --checkpoint "$checkpoint"
 
 bash scripts/archive.sh .state/runs/a800-pilot --with-raw-traces \
-  --checkpoint .state/runs/a800-pilot/checkpoints/checkpoint-6
+  --checkpoint "$checkpoint"
 bash scripts/archive.sh .state/runs/a800-eval --with-raw-traces
+(cd .state/exports/a800-pilot && sha256sum --strict -c SHA256SUMS)
+(cd .state/exports/a800-eval && sha256sum --strict -c SHA256SUMS)
 ```
 
-评测按固定顺序和种子比较 Base/Adapter，每道任务每路一次。
-仅同题初始 token 一致且双方可评分的任务进入配对差值与 bootstrap 区间。
-四道评测题来自与训练不同的公开仓库，适用于部署验收。
-结果见 `evaluation.json`，失败原因及部分结果见 `evaluation-partial.json`。
-
-归档时可增量纳入源码、配置、锁、原始 capture、Pi 工具轨迹、最终产物、
-验收记录、日志和所选可恢复 checkpoint。运行目录和原始文件可留在节点。
-核对导出目录内容和 SHA 后，使用实验室批准的路径或传输方式回传。
-下面的命令需先由操作者设置 `CARL_APPROVED_DEST`。
+Review the export before sending it to an approved lab destination. Set
+`CARL_APPROVED_DEST` to that destination, then transfer the results.
 
 ```bash
-(cd .state/exports/a800-pilot && sha256sum --strict -c SHA256SUMS)
 rsync -a --partial -- .state/exports/a800-pilot/ "$CARL_APPROVED_DEST/a800-pilot/"
+rsync -a --partial -- .state/exports/a800-eval/ "$CARL_APPROVED_DEST/a800-eval/"
 ```
 
-在训练中可先选归档日志和轨迹，最终再追加已核验的 checkpoint。
-源包的 Git commit 由 `SOURCE.json` 记录，实际进程参数保存在各运行的
-`logs/*.command.json`。
+## License
+
+Project-authored code and documentation are available under the
+[MIT License](LICENSE). See [third-party notices](THIRD_PARTY_NOTICES.md)
+for the separately sourced software, model and task sources.
