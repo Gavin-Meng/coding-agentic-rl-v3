@@ -1,0 +1,9 @@
+{
+  "role": "historical-only",
+  "model": "Qwen/Qwen3-4B-Instruct-2507",
+  "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+  "harness": "Terminus-2",
+  "prior_training_gpus": "2 x RTX 3090 24GB",
+  "v22_evaluation_gpus": "1 x RTX 3090 24GB",
+  "context": 6144
+}

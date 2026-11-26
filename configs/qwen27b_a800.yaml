@@ -1,0 +1,95 @@
+{
+  "model": {
+    "repo": "Qwen/Qwen3.8-27B",
+    "revision": "37561816e66b5b9153b1b64c10968c18c1e6f4a0",
+    "architecture": "Qwen3_5ForConditionalGeneration",
+    "parameters": 27781427952,
+    "safetensors_bytes": 55562855904,
+    "dtype": "bfloat16"
+  },
+  "upstream": {
+    "trl": "1.19.0",
+    "trl_commit": "39c749ed9ce139c594b4e8540fecd0b3cbcf19c9",
+    "openenv": "0.15.0",
+    "harbor": "0.27.0",
+    "pi": "1.5.2",
+    "vllm": "0.34.0",
+    "torch": "2.14.0+cu130",
+    "transformers": "5.22.0",
+    "peft": "0.22.0",
+    "accelerate": "1.16.0",
+    "cuda": "13.0"
+  },
+  "hardware": {
+    "gpu_name_fragment": "A800",
+    "gpu_compute_capability": [
+      8,
+      0
+    ],
+    "minimum_gpu_mib": 79000,
+    "maximum_idle_used_mib": 1024,
+    "minimum_driver_major": 580,
+    "minimum_ram_gib": 96,
+    "minimum_assets_disk_gib": 90
+  },
+  "sampler": {
+    "engine_port": 18300,
+    "openenv_port": 18301,
+    "sandbox_relay_port": 18808,
+    "max_model_len": 8192,
+    "max_num_seqs": 2,
+    "gpu_memory_utilization": 0.86,
+    "tool_call_parser": "qwen3_coder",
+    "reasoning_parser": "qwen3"
+  },
+  "rollout": {
+    "seed": 3127,
+    "max_completion_length": 768,
+    "max_model_calls": 8,
+    "agent_timeout_sec": 180,
+    "temperature": 0.8,
+    "top_p": 1.0,
+    "top_k": -1,
+    "min_p": 0.0,
+    "enable_thinking": false,
+    "reward_key": "reward"
+  },
+  "train": {
+    "num_generations": 4,
+    "max_concurrent_rollouts": 4,
+    "token_budget": 8192,
+    "gradient_accumulation_steps": 1,
+    "learning_rate": 5e-06,
+    "lora_rank": 16,
+    "lora_alpha": 32,
+    "lora_target_modules": [
+      "q_proj",
+      "k_proj",
+      "v_proj",
+      "o_proj",
+      "gate_proj",
+      "up_proj",
+      "down_proj"
+    ],
+    "max_staleness": 1,
+    "weight_sync_steps": 1,
+    "first_stage_updates": 1,
+    "total_planned_updates": 10,
+    "max_groups_per_launch": 20,
+    "max_wall_seconds": 7200,
+    "maximum_first_step_importance_mask_fraction": 0.1,
+    "checkpoint_and_probe_reserve_seconds": 450
+  },
+  "evaluation": {
+    "seed": 3128,
+    "bootstrap_seed": 3129,
+    "bootstrap_draws": 20000,
+    "episode_retries": 0
+  },
+  "topology": {
+    "sampler_gpus": 1,
+    "learner_gpus": 2,
+    "learner_backend": "fsdp2",
+    "nodes": 1
+  }
+}

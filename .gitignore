@@ -1,0 +1,11 @@
+/.venvs/
+/.state/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+*.log
+*.safetensors
+*.ckpt
+*.pt
+*.pth

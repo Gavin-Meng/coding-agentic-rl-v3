@@ -1,0 +1,33 @@
+{
+  "git_branch": "v3-27b-a800",
+  "git_commit": "4a24fb0f535a5f9dc246ee7c95552070416eab55",
+  "model": {
+    "architecture": "Qwen3_5ForConditionalGeneration",
+    "dtype": "bfloat16",
+    "parameters": 27781427952,
+    "repo": "Qwen/Qwen3.8-27B",
+    "revision": "37561816e66b5b9153b1b64c10968c18c1e6f4a0",
+    "safetensors_bytes": 55562855904
+  },
+  "source_tree": "v3/",
+  "topology": {
+    "learner_backend": "fsdp2",
+    "learner_gpus": 2,
+    "nodes": 1,
+    "sampler_gpus": 1
+  },
+  "upstream": {
+    "accelerate": "1.16.0",
+    "cuda": "13.0",
+    "harbor": "0.27.0",
+    "openenv": "0.15.0",
+    "peft": "0.22.0",
+    "pi": "1.5.2",
+    "torch": "2.14.0+cu130",
+    "transformers": "5.22.0",
+    "trl": "1.19.0",
+    "trl_commit": "39c749ed9ce139c594b4e8540fecd0b3cbcf19c9",
+    "vllm": "0.34.0"
+  },
+  "v2_2_source_snapshot_commit": "a1bcdb2307b55bc69fe6176971574a4d19de0415"
+}
